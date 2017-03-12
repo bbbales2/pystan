@@ -6,7 +6,7 @@
 #-----------------------------------------------------------------------------
 
 from pystan._compat import PY2, string_types, implements_to_string, izip
-from collections import OrderedDict
+from collections import OrderedDict, Counter
 if PY2:
     from collections import Callable, Iterable
 else:
@@ -882,6 +882,41 @@ class StanModel:
 
         ret, sample = fit._call_sampler(stan_args)
 
+        with open(stan_args['sample_file']) as f:
+            found_header = False
+            header_length = 0
+            for i, line in enumerate(f):
+                line = line.strip()
+                
+                if found_header == False and line[0] != '#':
+                    labels = line.split(',')
+                    found_header = True
+                elif found_header == True and line[0] != '#':
+                    header_length = i
+                    break
+                
+        samples = np.loadtxt(stan_args['sample_file'], skiprows = header_length, delimiter = ',')
+
+        counter = Counter()
+        
+        for i, label in enumerate(labels):
+            tokens = label.split('.')
+            
+            if len(tokens) == 1:
+                counter[label] += 1
+            else:
+                tlabel = "".join(label.split('.')[:-1])
+                counter[tlabel] += 1
+                
+        output = {}
+        
+        for tlabel, count in counter.iteritems():
+            idxs = np.where([label.startswith(tlabel) for label in labels])
+            if count == 1:
+                output[tlabel] = samples[:, idxs].reshape(-1)
+            else:
+                output[tlabel] = samples[:, idxs].reshape(-1, count)    
+                                                                                
         logger.warning('Automatic Differentiation Variational Inference (ADVI) is an EXPERIMENTAL ALGORITHM.')
         logger.warning('ADVI samples may be found on the filesystem in the file `{}`'.format(sample.args['sample_file'].decode('utf8')))
-        return OrderedDict([('args', sample.args), ('inits', sample.inits), ('sampler_params', sample.sampler_params), ('sampler_param_names', sample.sampler_param_names), ('mean_pars', sample.mean_pars)])
+        return OrderedDict([('args', sample.args), ('inits', sample.inits), ('sampler_params', sample.sampler_params), ('sampler_param_names', sample.sampler_param_names), ('mean_pars', sample.mean_pars), ('extract', output)])
